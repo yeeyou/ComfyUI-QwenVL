@@ -118,27 +118,55 @@ class ImageProcessor:
 class ModelDownloader:
     def __init__(self, configs):
         self.configs = configs
+        # 保持你的原 models 目录结构：
         self.models_dir = Path(folder_paths.models_dir) / "LLM" / "Qwen-VL"
         self.models_dir.mkdir(parents=True, exist_ok=True)
+
+    def _is_local_path(self, p: str) -> bool:
+        # tilde expand + resolve
+        try:
+            candidate = Path(p).expanduser()
+            return candidate.exists()
+        except Exception:
+            return False
 
     def ensure_model_available(self, model_name):
         model_info = self.configs.get(model_name)
         if not model_info:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
-        repo_id = model_info['repo_id']
-        model_folder_name = repo_id.split('/')[-1]
+        # 优先读取显式 local_path 字段（推荐）
+        local_path = model_info.get("local_path")
+        if local_path and self._is_local_path(local_path):
+            model_path = Path(local_path).expanduser()
+            print(f"Using local_path for model '{model_name}': {model_path}")
+            return str(model_path)
+
+        # 如果 repo_id 是一个本地路径（以 /, ./, ../, ~ 开头并存在），也直接使用
+        repo_id = model_info.get("repo_id", "")
+        if repo_id and self._is_local_path(repo_id):
+            model_path = Path(repo_id).expanduser()
+            print(f"Using repo_id as local path for model '{model_name}': {model_path}")
+            return str(model_path)
+
+        # 否则按原来逻辑，从 HuggingFace 下载（或其他远程仓库）
+        model_folder_name = repo_id.split('/')[-1] if repo_id else model_name
         model_path = self.models_dir / model_folder_name
-        
-        print(f"Ensuring model '{model_name}' is available at {model_path}...")
+
+        if model_path.exists():
+            print(f"Model directory already exists at {model_path}. Using existing.")
+            return str(model_path)
+
+        print(f"Downloading model '{model_name}' from repo_id '{repo_id}' into {model_path}...")
         snapshot_download(
             repo_id=repo_id,
             local_dir=str(model_path),
             local_dir_use_symlinks=False,
             ignore_patterns=["*.md", ".git*"]
         )
-        print(f"Model '{model_name}' is ready.")
+        print(f"Model '{model_name}' downloaded to {model_path}.")
         return str(model_path)
+
 
 class AILab_QwenVL_Advanced:
     def __init__(self):
@@ -353,6 +381,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AILab_QwenVL": "QwenVL",
     "AILab_QwenVL_Advanced": "QwenVL (Advanced)",
 }
+
 
 
 
